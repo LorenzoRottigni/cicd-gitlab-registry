@@ -1,0 +1,54 @@
+# Core Gitlab CI/CD Variables:
+# - CI_SERVER_HOST => Git server host (gitlab.com)
+# - CI_PROJECT_ID => Project where pipeline is running on
+# - CI_JOB_TOKEN  => Token that authorizes CI to interact with private Gitlab registry.
+# - COMMIT_HASH => short commit hash
+# - CI_COMMIT_REF_NAME => branch name
+# Custom Gitlab CI/CD Variables:
+# - CICD_PAT => Personal access token to allow pipeline R/W operations
+# - PACKAGE_SCOPE => Package scope ex. @group
+# - PACKAGE_REGISTRY => Path to Gitlab package registry repository /<group>/<repo>.git
+
+stages:
+  - publish
+
+gitlab-registry:
+  stage: publish
+  image: node:18.12.1
+  before_script:
+    - npm install --global lerna
+    # Allow CI/CD to push Gitlab private package registry ---
+    - echo "${PACKAGE_SCOPE}:registry=https://${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/" > .npmrc
+    - echo "//${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" >> .npmrc
+    - npm config set '//gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken' "${CI_JOB_TOKEN}"
+    # -------------------------------------------------------
+    - git config --global user.name "CI Bot"
+    - git config --global user.email "cibot@gitlab.com"
+    # Allow CI/CD to push versioning changes to the repo ----
+    - git config --global credential.helper store
+    - git config --global gitlab.accesstoken "${CICD_PAT}"
+    # -------------------------------------------------------
+    - git fetch origin
+    - git reset --hard origin/${CI_COMMIT_REF_NAME}
+    - git checkout -B ${CI_COMMIT_REF_NAME}
+  script:
+    - npm install --no-save
+    - lerna clean --yes
+    - lerna run build
+    # Compute new version tag
+    - COMMIT_HASH=$(git rev-parse --short HEAD)
+    - NEW_VERSION="0.0.1-${COMMIT_HASH:0:7}"
+    - lerna version "$NEW_VERSION" --yes --no-push --exact --force-publish --no-git-tag-version
+    # Push versioning changes to the repo
+    - |
+      if [[ -n $(git status -s) ]]; then
+        git add .
+        git commit -m "chore: :bookmark: CI/CD lerna versioning [skip ci]"
+        git remote set-url origin "https://pat:${CICD_PAT}@gitlab.com/${PACKAGE_REGISTRY}"
+        git push origin ${CI_COMMIT_REF_NAME}
+      fi
+    # from-git => Checks if there are any changes between the current version of your packages and the last tagged release
+    # from-package => Publishes packages based on the local package versions, rather than comparing against a tagged release
+    - lerna publish from-package --yes --dist-tag latest
+  only:
+    - main

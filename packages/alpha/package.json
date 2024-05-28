@@ -1,0 +1,19 @@
+{
+    "name": "@scope/alpha",
+    "author": "Lorenzo Rottigni <lorenzo@rottigni.tech>",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "version": "0.0.1-hash",
+    "license": "MIT",
+    "publishConfig": {
+      "@scope:registry": "https://gitlab.com/api/v4/projects/<project-id>/packages/npm/"
+    },
+    "files": [
+      "dist",
+      "README.md"
+    ],
+    "scripts": {
+      "build": "rimraf dist && tsc"
+    }
+  }
+  
